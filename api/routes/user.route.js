@@ -22,7 +22,6 @@ const {
 } = require("../validators/user.validator");
 const { authentication } = require("../middlewares/authentication.middleware");
 const { isListener } = require("../middlewares/authorization.middleware");
-const { asyncHandler } = require("../middlewares/asyncHandler.middleware");
 /* ----------------- Importing Middlewares ----------------- */
 
 const userRouter = express.Router();
@@ -63,7 +62,7 @@ userRouter.put(
   validateRequest(updateUserProfileSchema, "BODY"),
   authentication,
   isListener,
-  asyncHandler(updateUserProfileInfo)
+  updateUserProfileInfo
 );
 userRouter.delete("/profile", authentication, isListener, deleteUserProfile);
 /* ----------------- User Profile Management Routes ----------------- */
