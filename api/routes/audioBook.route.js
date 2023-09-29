@@ -65,8 +65,10 @@ audioBookRouter.get(
 
 /* ----------------- Streaming Book Route ----------------- */
 audioBookRouter.get(
-  "/stream/:audioBookId/:sectionIndex",
+  "/stream/:audioBookId/:sectionId",
   validateRequest(audioBookStreamSchema, "PARAMS"),
+  authentication,
+  isListener,
   getAudioFileStream
 );
 /* ----------------- Streaming Book Route ----------------- */

@@ -9,9 +9,10 @@ const saveUser = async (body) => {
     There is no sense to send it in response 
     And assigning undefined because delete
     operator not work on mongooose document */
-    user.password = undefined
+    user.password = undefined;
     user.isSuspended = undefined;
     user.isDeleted = undefined;
+    user.blockedStatus = undefined;
     user.blockedHistory = undefined;
     user.listeningData = undefined;
 

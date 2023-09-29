@@ -1,14 +1,17 @@
 const axios = require("axios");
 const AudioBookModel = require("../models/audioBook.model");
 const { AudioBook } = require("../schemas/audioBook.schema");
+const { validValues } = require("../validators/audioBook.validator");
 
 // Function to retrieve an audio book by _id with select/exclude options
 const getAudioBookInfo = async (req, res) => {
   try {
     const { audioBookId } = req.params;
     const { include, exclude } = req.query;
+    console.log(include, exclude);
 
     const fields = {};
+    let dynamicStage;
 
     if (include) {
       include.forEach((field) => (fields[field] = 1));
@@ -20,15 +23,105 @@ const getAudioBookInfo = async (req, res) => {
 
     let pipeline = [{ $match: { _id: audioBookId } }, { $project: fields }];
 
-    if (include.includes("sections") && fields.sections) {
-      // Exclude the listen_url of the section to secure the content
+    // Exclude the listen_url of the section to secure the content
+    // Case 1: if it is including sections field
+    // Case 2: if it is not excluding sections field
+    if (include?.includes("sections") || !exclude?.includes("sections")) {
       pipeline.push({ $project: { "sections.listen_url": 0 } });
     }
 
-    if (include.includes("reviews") && fields.reviews) {
-      // Exclude the listen_url of the section to secure the content
-      pipeline = [
-        ...pipeline,
+    // Populate user info in place of userId if fields include reviews
+    // Case 1: if it is including reviews field
+    // Case 2: if it is not excluding reviews field
+    if (
+      include?.includes("reviews") ||
+      (exclude && !exclude.includes("reviews"))
+    ) {
+      console.log("Review is included or not excluded");
+      // Filtered Fields Object With Value 1
+      // Case 1: If reviews include replicate get same fields as in fields object
+      // Case 2: If reviews not exclude get all the fields other than in fields object
+      const fieldsObjWithoutReviews1 = {};
+      if (include?.includes("reviews")) {
+        console.log("The review is included for 1");
+        Object.keys(fields)
+          .filter((field) => field !== "reviews")
+          .forEach((field) => (fieldsObjWithoutReviews1[field] = 1));
+      } else {
+        console.log("The review is not included for 1");
+        validValues
+          .filter((value) => !Object.keys(fields).includes(value))
+          .forEach((field) => (fieldsObjWithoutReviews1[field] = null));
+      }
+
+      console.log("fieldsObjWithoutReviews1:", fieldsObjWithoutReviews1);
+
+      // Filtered feilds object with value $first accumulator
+      const fieldsObjWithoutReviews2 = {};
+      if (include?.includes("reviews")) {
+        console.log("The review is included for 2");
+        Object.keys(fieldsObjWithoutReviews1).forEach(
+          (field) => (fieldsObjWithoutReviews2[field] = { $first: "$" + field })
+        );
+        dynamicStage = {
+          $project: {
+            _id: "$_id",
+            ...fieldsObjWithoutReviews1,
+            review: {
+              $cond: [
+                { $ifNull: ["$reviews.k", false] },
+                {
+                  _id: "$reviews.v._id",
+                  user: {
+                    _id: "$reviewsDetails._id",
+                    firstName: "$reviewsDetails.firstName",
+                    lastName: "$reviewsDetails.lastName",
+                    username: "$reviewsDetails.username",
+                  },
+                  content: "$reviews.v.content",
+                  rating: "$reviews.v.rating",
+                },
+                null,
+              ],
+            },
+          },
+        };
+      } else {
+        console.log("The review is not included for 2");
+        validValues
+          .filter((value) => !Object.keys(fields).includes(value))
+          .forEach(
+            (field) =>
+              (fieldsObjWithoutReviews2[field] = { $first: "$" + field })
+          );
+        dynamicStage = {
+          $addFields: {
+            _id: "$_id",
+            // ...fieldsObjWithoutReviews1,
+            review: {
+              $cond: [
+                { $ifNull: ["$reviews.k", false] },
+                {
+                  _id: "$reviews.v._id",
+                  user: {
+                    _id: "$reviewsDetails._id",
+                    firstName: "$reviewsDetails.firstName",
+                    lastName: "$reviewsDetails.lastName",
+                    username: "$reviewsDetails.username",
+                  },
+                  content: "$reviews.v.content",
+                  rating: "$reviews.v.rating",
+                },
+                null,
+              ],
+            },
+          },
+        };
+      }
+
+      console.log("fieldsObjWithoutReviews2:", fieldsObjWithoutReviews2);
+
+      pipeline.push(
         {
           $addFields: {
             reviews: {
@@ -38,6 +131,7 @@ const getAudioBookInfo = async (req, res) => {
         },
         {
           $unwind: {
+            preserveNullAndEmptyArrays: true,
             path: "$reviews",
           },
         },
@@ -58,45 +152,26 @@ const getAudioBookInfo = async (req, res) => {
         },
         {
           $unwind: {
+            preserveNullAndEmptyArrays: true,
             path: "$reviewsDetails",
           },
         },
-        {
-          $project: {
-            _id: "$_id",
-            rank: 1,
-            title: 1,
-            review: {
-              _id: "$reviews.v._id",
-              user: {
-                _id: "$reviewsDetails._id",
-                firstName: "$reviewsDetails.firstName",
-                lastName: "$reviewsDetails.lastName",
-                username: "$reviewsDetails.username",
-              },
-              content: "$reviews.v.content",
-              rating: "$reviews.v.rating",
-            },
-          },
-        },
+        dynamicStage,
         {
           $group: {
             _id: "$_id",
-            title: {
-              $first: "$title",
-            },
-            rank: {
-              $first: "$rank",
-            },
+            ...fieldsObjWithoutReviews2,
             reviews: {
-              $push: "$review",
+              $push: {
+                $cond: [{ $ifNull: ["$review", false] }, "$review", "$$REMOVE"],
+              },
             },
           },
-        },
-      ];
+        }
+      );
     }
 
-    // console.log(pipeline);
+    console.log("finalPipeline:", JSON.stringify(pipeline));
 
     const audioBook = await AudioBookModel.getAudioBookById(pipeline);
 
@@ -108,7 +183,6 @@ const getAudioBookInfo = async (req, res) => {
       return res.status(404).send({
         message: audioBook.status,
         description: "Audio book not found",
-        check: "I am from book info",
       });
     } else {
       return res
@@ -129,8 +203,33 @@ const getAudioBookInfo = async (req, res) => {
 const getAudioBooks = async (req, res) => {
   try {
     const { include, exclude, limit, page } = req.query;
-    let fields = {};
-    let sort = {};
+    const fields = {};
+    let stagesForSort = [
+      {
+        $addFields: {
+          sortRank: {
+            $cond: [
+              {
+                $eq: ["$rank", null],
+              },
+              "",
+              "$rank",
+            ],
+          },
+        },
+      },
+      {
+        $sort: {
+          sortRank: 1,
+        },
+      },
+      {
+        $project: {
+          sortRank: 0,
+        },
+      },
+    ];
+    let dynamicStage;
 
     if (include) {
       include.forEach((field) => (fields[field] = 1));
@@ -140,25 +239,171 @@ const getAudioBooks = async (req, res) => {
       exclude.forEach((field) => (fields[field] = 0));
     }
 
-    if (fields.rank) {
-      sort.rank = 1;
-    }
-
     let pipeline = [
       { $project: fields },
       { $skip: (parseInt(page) - 1) * parseInt(limit) },
       { $limit: limit ? parseInt(limit) : 10 },
     ];
 
-    if (fields.rank) {
-      pipeline.splice(0, 0, { $match: { rank: { $gt: 0 } } });
-      pipeline.splice(1, 0, { $sort: { rank: 1 } });
+    if (include?.includes("rank") || !exclude?.includes("rank")) {
+      /* Get the audioBooks that have rank in ascending order (null means not ranked will be at last)
+      Adjusting the query mechanism becasue sorting with value 1 get null data at first
+      */
+      pipeline.unshift(...stagesForSort);
     }
 
-    if (include.includes("sections") && fields.sections) {
+    if (include?.includes("sections") || !exclude?.includes("sections")) {
       // Exclude the listen_url of the section to secure the content
-      pipeline.splice(1, 0, { $project: { "sections.listen_url": 0 } });
+      pipeline.unshift({ $project: { "sections.listen_url": 0 } });
     }
+
+    // Populate user info in place of userId if fields include reviews
+    // Case 1: if it is including reviews field
+    // Case 2: if it is not excluding reviews field
+    if (
+      include?.includes("reviews") ||
+      (exclude && !exclude.includes("reviews"))
+    ) {
+      console.log("Review is included or not excluded");
+      // Filtered Fields Object With Value 1
+      // Case 1: If reviews include replicate get same fields as in fields object
+      // Case 2: If reviews not exclude get all the fields other than in fields object
+      const fieldsObjWithoutReviews1 = {};
+      if (include?.includes("reviews")) {
+        console.log("The review is included for 1");
+        Object.keys(fields)
+          .filter((field) => field !== "reviews")
+          .forEach((field) => (fieldsObjWithoutReviews1[field] = 1));
+      } else {
+        console.log("The review is not included for 1");
+        validValues
+          .filter((value) => !Object.keys(fields).includes(value))
+          .forEach((field) => (fieldsObjWithoutReviews1[field] = null));
+      }
+
+      console.log("fieldsObjWithoutReviews1:", fieldsObjWithoutReviews1);
+
+      // Filtered feilds object with value $first accumulator
+      const fieldsObjWithoutReviews2 = {};
+      if (include?.includes("reviews")) {
+        console.log("The review is included for 2");
+        Object.keys(fieldsObjWithoutReviews1).forEach(
+          (field) => (fieldsObjWithoutReviews2[field] = { $first: "$" + field })
+        );
+        dynamicStage = {
+          $project: {
+            _id: "$_id",
+            ...fieldsObjWithoutReviews1,
+            review: {
+              $cond: [
+                { $ifNull: ["$reviews.k", false] },
+                {
+                  _id: "$reviews.v._id",
+                  user: {
+                    _id: "$reviewsDetails._id",
+                    firstName: "$reviewsDetails.firstName",
+                    lastName: "$reviewsDetails.lastName",
+                    username: "$reviewsDetails.username",
+                  },
+                  content: "$reviews.v.content",
+                  rating: "$reviews.v.rating",
+                },
+                null,
+              ],
+            },
+          },
+        };
+      } else {
+        console.log("The review is not included for 2");
+        validValues
+          .filter((value) => !Object.keys(fields).includes(value))
+          .forEach(
+            (field) =>
+              (fieldsObjWithoutReviews2[field] = { $first: "$" + field })
+          );
+        dynamicStage = {
+          $addFields: {
+            _id: "$_id",
+            review: {
+              $cond: [
+                { $ifNull: ["$reviews.k", false] },
+                {
+                  _id: "$reviews.v._id",
+                  user: {
+                    _id: "$reviewsDetails._id",
+                    firstName: "$reviewsDetails.firstName",
+                    lastName: "$reviewsDetails.lastName",
+                    username: "$reviewsDetails.username",
+                  },
+                  content: "$reviews.v.content",
+                  rating: "$reviews.v.rating",
+                },
+                null,
+              ],
+            },
+          },
+        };
+      }
+
+      console.log("fieldsObjWithoutReviews2:", fieldsObjWithoutReviews2);
+
+      pipeline.push(
+        {
+          $addFields: {
+            reviews: {
+              $objectToArray: "$reviews",
+            },
+          },
+        },
+        {
+          $unwind: {
+            preserveNullAndEmptyArrays: true, // To still keep the documents that dont have reviews.
+            path: "$reviews",
+          },
+        },
+        {
+          $addFields: {
+            "reviews.k": {
+              $toObjectId: "$reviews.k",
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "users",
+            localField: "reviews.k",
+            foreignField: "_id",
+            as: "reviewsDetails",
+          },
+        },
+        {
+          $unwind: {
+            preserveNullAndEmptyArrays: true, // To still keep the documents that dont have reviews.
+            path: "$reviewsDetails",
+          },
+        },
+        dynamicStage,
+        {
+          $group: {
+            _id: "$_id",
+            ...fieldsObjWithoutReviews2,
+            reviews: {
+              $push: {
+                $cond: [{ $ifNull: ["$review", false] }, "$review", "$$REMOVE"],
+              },
+            },
+          },
+        }
+      );
+    }
+
+    if (include?.includes("rank") || !exclude?.includes("rank")) {
+      /* Again pushing sort because of unwind disturb the previous sort. but this time sort will only happen for maximum 10 elements
+       */
+      pipeline.push(...stagesForSort);
+    }
+
+    console.log(JSON.stringify(pipeline));
 
     const audioBooks = await AudioBookModel.getAudioBooks(pipeline);
 
@@ -195,13 +440,10 @@ const getAudioBooks = async (req, res) => {
 };
 
 const getAudioFileStream = async (req, res) => {
-  const { audioBookId, sectionIndex } = req.params;
+  const { audioBookId, sectionId } = req.params;
 
   try {
     // A projection string that will make sure to get the specific listen url based on section index.
-    // const pipeline = {
-    //   sections: { $arrayElemAt: ["$sections", Number(sectionIndex)] },
-    // };
 
     const pipeline = [
       {
@@ -210,10 +452,17 @@ const getAudioFileStream = async (req, res) => {
         },
       },
       {
+        $unwind: "$sections",
+      },
+      {
+        $match: {
+          "sections._id": sectionId,
+        },
+      },
+      {
         $project: {
-          sections: {
-            $arrayElemAt: ["$sections", parseInt(sectionIndex)],
-          },
+          _id: 0,
+          listen_url: "$sections.listen_url",
         },
       },
     ];
@@ -221,23 +470,19 @@ const getAudioFileStream = async (req, res) => {
     const audioBookSection = await AudioBookModel.getAudioBookById(pipeline);
 
     if (audioBookSection.status === "SUCCESS") {
-      if (
-        !audioBookSection.data?.length ||
-        !audioBookSection.data[0]?.sections
-      ) {
+      if (!audioBookSection.data[0]?.listen_url) {
         return res
           .status(404)
           .send({ message: "FAILED", description: "Section not found" });
       }
 
-      const audioFileUrl = audioBookSection.data[0].sections.listen_url;
+      const audioFileUrl = audioBookSection.data[0].listen_url;
 
       return res.send({ message: "SUCCESS", data: audioFileUrl });
     } else if (audioBookSection.status === "FAILED") {
       return res.status(404).send({
         message: audioBookSection.status,
         description: "Audio book not found",
-        check: "I am from stream",
       });
     } else {
       return res.status(500).send({

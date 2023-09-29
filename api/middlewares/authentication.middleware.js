@@ -40,6 +40,7 @@ const authentication = async (req, res, next) => {
 
     const isSessionMatched = data?.loginSession === decodedToken?.session;
 
+    console.log(isSessionMatched, status);
     // If user not found or login session not matched
     if (status !== "SUCCESS" || !isSessionMatched || data?.isDeleted) {
       return res.status(403).json({

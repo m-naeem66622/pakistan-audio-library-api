@@ -34,15 +34,8 @@ const saveAudioBook = async (data) => {
 
 const getAudioBooks = async (pipeline) => {
   try {
-    let totalResults;
-    // Figure out if the $match stage exist or not
-    if (pipeline[0]["$match"]) {
-      totalResults = await AudioBook.countDocuments(
-        pipeline[0]["$match"]
-      ).exec();
-    } else {
-      totalResults = await AudioBook.countDocuments().exec();
-    }
+    // Count items
+    const totalResults = await AudioBook.countDocuments().exec();
 
     const documents = await AudioBook.aggregate(pipeline).exec();
 
@@ -71,11 +64,11 @@ const getAudioBooks = async (pipeline) => {
 const getAudioBookById = async (pipeline) => {
   try {
     const audioBook = await AudioBook.aggregate(pipeline);
-
-    if (audioBook) {
+    console.log("audioBook:", audioBook);
+    if (audioBook.length) {
       return {
         status: "SUCCESS",
-        data: audioBook,
+        data: audioBook[0],
       };
     } else {
       return {

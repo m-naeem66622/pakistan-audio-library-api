@@ -43,7 +43,15 @@ const userSchema = new mongoose.Schema(
     isSuspended: { type: Boolean, default: false },
     blockedHistory: [blockedStatus],
     loginSession: { type: String, default: null },
-    blockedStatus,
+    blockedStatus: {
+      type: blockedStatus,
+      default: {
+        isBlocked: false,
+        blockedAt: null,
+        blockedCount: 0,
+        blockedFor: 0,
+      },
+    },
     isDeleted: { type: Boolean, default: false },
     /* Storing audio book IDs and listen times as a map 
     Number will be the time in seconds */

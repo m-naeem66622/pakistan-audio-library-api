@@ -41,7 +41,6 @@ const audioBookInfoSchema = Joi.object({
   title: Joi.string().required(),
   description: Joi.string().required(),
   language: Joi.string().required(),
-  copyright_year: Joi.string(),
   num_sections: Joi.string().required(),
   totaltimesecs: Joi.number().required(),
   authors: Joi.array().items(authorSchema),
@@ -51,11 +50,9 @@ const audioBookInfoSchema = Joi.object({
 });
 
 const validValues = [
-  "_id",
   "title",
   "description",
   "language",
-  "copyright_year",
   "num_sections",
   "totaltimesecs",
   "score",
@@ -94,7 +91,7 @@ const searchAudioBooksSchema = Joi.object({
 
 const audioBookStreamSchema = Joi.object({
   audioBookId: Joi.string().required(),
-  sectionIndex: Joi.number().min(0).required(),
+  sectionId: Joi.string().required(),
 });
 
 const audioBookScoreSchema = {
@@ -131,4 +128,5 @@ module.exports = {
   searchAudioBooksSchema,
   audioBookScoreSchema,
   audioBookReviewSchema,
+  validValues,
 };
