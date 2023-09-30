@@ -1,10 +1,22 @@
 const UserModel = require("../models/user.model");
+const AudioBookModel = require("../models/audioBook.model");
 
 const updateUserListening = async (req, res) => {
   try {
     const { time } = req.body;
     const { audioBookId } = req.params;
     const { _id: userId } = req.decodedToken;
+
+    const audioBook = await AudioBookModel.getAudioBookById([
+      { $match: { _id: audioBookId } },
+    ]);
+
+    if (audioBook.status !== "SUCCESS") {
+      return res.status(404).send({
+        message: "FAILED",
+        description: "Book not found",
+      });
+    }
 
     const dataUpdated = await UserModel.updateUserListeningData(
       userId,
@@ -37,7 +49,18 @@ const addToUserFavourite = async (req, res) => {
     const { audioBookId } = req.params;
     const { _id: userId } = req.decodedToken;
 
-    const options = { new: true, fields: "favouriteAudioBooks" };
+    const audioBook = await AudioBookModel.getAudioBookById([
+      { $match: { _id: audioBookId } },
+    ]);
+
+    if (audioBook.status !== "SUCCESS") {
+      return res.status(404).send({
+        message: "FAILED",
+        description: "Book not found",
+      });
+    }
+
+    const options = { new: true, fields: `favouriteAudioBooks.${audioBookId}` };
 
     const updatedFavouriteList = await UserModel.addToUserFavourite(
       userId,
@@ -72,7 +95,18 @@ const removeFromUserFavourite = async (req, res) => {
     const { audioBookId } = req.params;
     const { _id: userId } = req.decodedToken;
 
-    const options = { new: true, fields: "favouriteAudioBooks" };
+    const audioBook = await AudioBookModel.getAudioBookById([
+      { $match: { _id: audioBookId } },
+    ]);
+
+    if (audioBook.status !== "SUCCESS") {
+      return res.status(404).send({
+        message: "FAILED",
+        description: "Book not found",
+      });
+    }
+
+    const options = { new: true, fields: `favouriteAudioBooks.${audioBookId}` };
 
     const updatedFavouriteList = await UserModel.removeFromUserFavourite(
       userId,
@@ -161,6 +195,15 @@ const getUserProfileInfo = async (req, res) => {
 const updateUserProfileInfo = async (req, res) => {
   try {
     const { _id } = req.decodedToken;
+    const { username } = req.body;
+    const userFound = await UserModel.getUserByUsername(username);
+
+    if (userFound.status === "SUCCESS") {
+      return res.status(409).json({
+        message: "USERNMAE ALREADY EXIST",
+      });
+    }
+
     const updateObj = req.body;
 
     const updatedUser = await UserModel.updateUserProfileInfo(

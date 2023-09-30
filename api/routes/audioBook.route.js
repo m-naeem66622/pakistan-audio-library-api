@@ -6,11 +6,11 @@ const {
   updateAudioBookScore,
   getAudioFileStream,
   addAudioBookReview,
-  getAudioBookReviews,
   getAudioBookReviewByUserId,
   getAudioBookReviewByReviewId,
   getAudioBooks,
   searchAudioBooks,
+  getRecommendations,
 } = require("../controllers/audioBook.controller");
 /* ----------------- Importing Controllers ----------------- */
 
@@ -57,6 +57,13 @@ audioBookRouter.get(
   searchAudioBooks
 );
 audioBookRouter.get(
+  "/recommendations",
+  validateRequest(getAudioBooksSchema, "QUERY"),
+  authentication,
+  isListener,
+  getRecommendations
+);
+audioBookRouter.get(
   "/:audioBookId",
   validateRequest(getSingleAudioBookSchema, "QUERY"),
   getAudioBookInfo
@@ -91,11 +98,6 @@ audioBookRouter.put(
   addAudioBookReview
 );
 audioBookRouter.get(
-  "/:audioBookId/reviews",
-  validateRequest(audioBookReviewSchema["PARAMS"], "PARAMS"),
-  getAudioBookReviews
-);
-audioBookRouter.get(
   "/:audioBookId/review",
   validateRequest(audioBookReviewSchema["PARAMS"], "PARAMS"),
   authentication,
@@ -105,8 +107,6 @@ audioBookRouter.get(
 audioBookRouter.get(
   "/:audioBookId/review/:reviewId",
   validateRequest(audioBookReviewSchema["PARAMS_WITH_REVIEWID"], "PARAMS"),
-  authentication,
-  isListener,
   getAudioBookReviewByReviewId
 );
 /* ----------------- Book Reviewing Routes ----------------- */

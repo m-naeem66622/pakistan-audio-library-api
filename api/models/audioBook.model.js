@@ -116,15 +116,15 @@ const updateAudioBookScore = async (audioBookId, score) => {
 };
 
 const saveAudioBookReview = async (
-  userId,
   audioBookId,
+  userId,
   reviewData,
   options = {}
 ) => {
   try {
     const updatedAudioBook = await AudioBook.findByIdAndUpdate(
-      userId,
-      { $set: { [`reviews.${audioBookId}`]: reviewData } },
+      audioBookId,
+      { $set: { [`reviews.${userId}`]: reviewData } },
       options
     );
 
@@ -145,198 +145,6 @@ const saveAudioBookReview = async (
       error: {
         message: error.message,
         identifier: "0x000A06", // for only development purpose while debugging
-      },
-    };
-  }
-};
-
-const getAudioBookReviews = async (audioBookId, options = {}) => {
-  try {
-    const reviews = await AudioBook.aggregate([
-      {
-        $match: {
-          _id: audioBookId,
-        },
-      },
-      {
-        $project: {
-          reviews: {
-            $objectToArray: "$reviews",
-          },
-        },
-      },
-      {
-        $unwind: {
-          path: "$reviews",
-        },
-      },
-      {
-        $addFields: {
-          "reviews.k": {
-            $toObjectId: "$reviews.k",
-          },
-        },
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "reviews.k",
-          foreignField: "_id",
-          as: "reviewsDetails",
-        },
-      },
-      {
-        $unwind: {
-          path: "$reviewsDetails",
-        },
-      },
-      {
-        $project: {
-          _id: "$reviews.v._id",
-          user: {
-            _id: "$reviewsDetails._id",
-            firstName: "$reviewsDetails.firstName",
-            lastName: "$reviewsDetails.lastName",
-            username: "$reviewsDetails.username",
-          },
-          content: "$reviews.v.content",
-          rating: "$reviews.v.rating",
-        },
-      },
-    ]);
-
-    if (reviews) {
-      return {
-        status: "SUCCESS",
-        data: reviews,
-      };
-    } else {
-      return {
-        status: "FAILED",
-        error: { identifier: "0x000A09" }, // for only development purpose while debugging
-      };
-    }
-  } catch (error) {
-    return {
-      status: "INTERNAL SERVER ERROR",
-      error: {
-        message: error.message,
-        identifier: "0x000A08", // for only development purpose while debugging
-      },
-    };
-  }
-};
-
-const getAudioBookWithReviews = async (audioBookId, options = {}) => {
-  try {
-    const audioBook = await AudioBook.aggregate([
-      [
-        {
-          $match: {
-            _id: audioBookId,
-          },
-        },
-        {
-          $project: {
-            reviews: {
-              $objectToArray: "$reviews",
-            },
-          },
-        },
-        {
-          $unwind: {
-            path: "$reviews",
-          },
-        },
-        {
-          $addFields: {
-            "reviews.k": {
-              $toObjectId: "$reviews.k",
-            },
-          },
-        },
-        {
-          $lookup: {
-            from: "users",
-            localField: "reviews.k",
-            foreignField: "_id",
-            as: "reviewsDetails",
-          },
-        },
-        {
-          $unwind: {
-            path: "$reviewsDetails",
-          },
-        },
-        {
-          $group: {
-            _id: "$_id",
-            reviews: {
-              $push: {
-                _id: "$reviews.v._id",
-                user: {
-                  _id: "$reviewsDetails._id",
-                  firstName: "$reviewsDetails.firstName",
-                  lastName: "$reviewsDetails.lastName",
-                  username: "$reviewsDetails.username",
-                },
-                content: "$reviews.v.content",
-                rating: "$reviews.v.rating",
-              },
-            },
-          },
-        },
-        {
-          $lookup: {
-            from: "audiobooks",
-            localField: "_id",
-            foreignField: "_id",
-            as: "book",
-          },
-        },
-        {
-          $unwind: {
-            path: "$book",
-          },
-        },
-        {
-          $project: {
-            _id: 1,
-            title: "$book.title",
-            description: "$book.description",
-            language: "$book.username",
-            copyright_year: "$book.copyright_year",
-            num_sections: "$book.num_sections",
-            sections: "$book.sections",
-            totaltimesecs: "$book.totaltimesecs",
-            authors: "$book.authors",
-            sections: "$book.sections",
-            genres: "$book.genres",
-            translators: "$book.translators",
-            rank: "$book.rank",
-            reviews: 1,
-          },
-        },
-      ],
-    ]);
-
-    if (audioBook) {
-      return {
-        status: "SUCCESS",
-        data: audioBook,
-      };
-    } else {
-      return {
-        status: "FAILED",
-        error: { identifier: "0x000A0B" }, // for only development purpose while debugging
-      };
-    }
-  } catch (error) {
-    return {
-      status: "INTERNAL SERVER ERROR",
-      error: {
-        message: error.message,
-        identifier: "0x000A0A", // for only development purpose while debugging
       },
     };
   }
@@ -518,14 +326,47 @@ const getAudioBookReviewByReviewId = async (
   }
 };
 
+const populateDataForSearchedIds = async (pipeline) => {
+  try {
+    const documents = await AudioBook.aggregate(pipeline).exec();
+
+    const documentsLength = Object.values(documents[0]).reduce(
+      (length, array) => length + array.length,
+      0
+    );
+
+    if (documentsLength) {
+      return { status: "SUCCESS", data: documents[0] };
+    } else {
+      return { status: "FAILED" };
+    }
+  } catch (error) {
+    return { status: "INTERNAL SERVER ERROR", error: error.message };
+  }
+};
+
+const getBooksByIds = async (pipeline) => {
+  try {
+    const documents = await AudioBook.aggregate(pipeline).exec();
+
+    if (documents.length) {
+      return { status: "SUCCESS", data: documents };
+    } else {
+      return { status: "FAILED" };
+    }
+  } catch (error) {
+    return { status: "INTERNAL SERVER ERROR", error: error.message };
+  }
+};
+
 module.exports = {
   saveAudioBook,
   getAudioBooks,
   getAudioBookById,
   updateAudioBookScore,
   saveAudioBookReview,
-  getAudioBookReviews,
-  getAudioBookWithReviews,
   getAudioBookReviewByUserId,
   getAudioBookReviewByReviewId,
+  populateDataForSearchedIds,
+  getBooksByIds
 };

@@ -28,9 +28,7 @@ const updateUserTotalTimeListened = async () => {
     // Stage 4: Convert string _id to ObjectId of each document to match it for merge.
     {
       $addFields: {
-        _id: {
-          $toObjectId: "$_id",
-        },
+        _id: "$_id",
       },
     },
     // Stage 5: Update the audiobooks collection with the total time listened

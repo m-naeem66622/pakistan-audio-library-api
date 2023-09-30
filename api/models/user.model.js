@@ -155,6 +155,11 @@ const addToUserFavourite = async (userId, audioBookId, options) => {
       options
     );
 
+    return {
+      status: "SUCCESS",
+      data: favouriteList,
+    };
+
     if (favouriteList) {
       return {
         status: "SUCCESS",
@@ -445,6 +450,95 @@ const deleteUserProfile = async (userId, options = {}) => {
   }
 };
 
+const getTopListenedGenres = async (userId, limit = 5) => {
+  try {
+    const topGenres = await User.aggregate([
+      {
+        $match: {
+          _id: new mongoose.Types.ObjectId(userId),
+        },
+      },
+      {
+        $project: {
+          listeningData: {
+            $objectToArray: "$listeningData",
+          },
+        },
+      },
+      {
+        $unwind: {
+          path: "$listeningData",
+        },
+      },
+      {
+        $lookup: {
+          from: "audiobooks",
+          localField: "listeningData.k",
+          foreignField: "_id",
+          as: "audioBookDetail",
+        },
+      },
+      {
+        $unwind: {
+          path: "$audioBookDetail",
+        },
+      },
+      {
+        $unwind: {
+          path: "$audioBookDetail.genres",
+        },
+      },
+      {
+        $group: {
+          _id: "$audioBookDetail.genres.name",
+          userId: {
+            $first: "$_id",
+          },
+          totalTimeListened: {
+            $first: "$listeningData.v",
+          },
+        },
+      },
+      {
+        $sort: {
+          totalTimeListened: -1,
+        },
+      },
+      {
+        $limit: limit,
+      },
+      {
+        $group: {
+          _id: "$userId",
+          genres: {
+            $push: "$_id",
+          },
+        },
+      },
+    ]).exec();
+
+    if (topGenres.length) {
+      return {
+        status: "SUCCESS",
+        data: topGenres[0],
+      };
+    } else {
+      return {
+        status: "FAILED",
+        error: { identifier: "0x000C18" }, // for only development purpose while debugging
+      };
+    }
+  } catch (error) {
+    return {
+      status: "INTERNAL SERVER ERROR",
+      error: {
+        message: error.message,
+        identifier: "0x000C17", // for only development purpose while debugging
+      },
+    };
+  }
+};
+
 module.exports = {
   saveUser,
   getUserById,
@@ -457,4 +551,5 @@ module.exports = {
   getUserProfileInfo,
   updateUserProfileInfo,
   deleteUserProfile,
+  getTopListenedGenres,
 };

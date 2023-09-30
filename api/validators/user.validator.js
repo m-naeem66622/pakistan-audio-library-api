@@ -25,7 +25,7 @@ const userLoginSchema = Joi.object({
 const userListeningDataSchema = {
   BODY: Joi.object({ time: Joi.number().min(0).required() }),
 
-  PARAMS: Joi.object({ audioBookId: Joi.string().hex().length(24).required() }),
+  PARAMS: Joi.object({ audioBookId: Joi.string().required() }),
 };
 
 const updateUserProfileSchema = Joi.object({

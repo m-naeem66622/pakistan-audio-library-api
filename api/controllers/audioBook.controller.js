@@ -1,6 +1,7 @@
 const axios = require("axios");
+const qs = require("qs");
 const AudioBookModel = require("../models/audioBook.model");
-const { AudioBook } = require("../schemas/audioBook.schema");
+const UserModel = require("../models/user.model");
 const { validValues } = require("../validators/audioBook.validator");
 
 // Function to retrieve an audio book by _id with select/exclude options
@@ -542,7 +543,7 @@ const addAudioBookReview = async (req, res) => {
     const { audioBookId } = req.params;
 
     // req.body.userId = userId;
-    const options = { fields: "reviews" };
+    const options = { fields: `-reviews` };
 
     let updatedAudioBook = await AudioBookModel.saveAudioBookReview(
       audioBookId,
@@ -550,6 +551,8 @@ const addAudioBookReview = async (req, res) => {
       req.body,
       options
     );
+
+    console.log(JSON.stringify(updatedAudioBook.data));
 
     if (updatedAudioBook.status !== "SUCCESS") {
       return res.status(422).send({
@@ -559,7 +562,10 @@ const addAudioBookReview = async (req, res) => {
       });
     }
 
-    updatedAudioBook = await AudioBookModel.getAudioBookReviews(audioBookId);
+    updatedAudioBook = await AudioBookModel.getAudioBookReviewByUserId(
+      audioBookId,
+      userId
+    );
 
     if (updatedAudioBook.status !== "SUCCESS") {
       return res.status(422).send({
@@ -576,34 +582,6 @@ const addAudioBookReview = async (req, res) => {
       error: {
         message: error.message,
         identifier: "0x000B04", // for only development purpose while debugging
-      },
-    });
-  }
-};
-
-const getAudioBookReviews = async (req, res) => {
-  const { audioBookId } = req.params;
-
-  try {
-    const updatedAudioBook = await AudioBookModel.getAudioBookReviews(
-      audioBookId
-    );
-
-    if (updatedAudioBook.status !== "SUCCESS") {
-      return res.status(422).send({
-        message: "FAILED",
-        description: "Reviews not fetched",
-        error: updatedAudioBook.error,
-      });
-    }
-
-    res.status(200).send({ message: "SUCCESS", data: updatedAudioBook.data });
-  } catch (error) {
-    return res.status(500).send({
-      message: "INTERNAL SERVER ERROR",
-      error: {
-        message: error.message,
-        identifier: "0x000B05", // for only development purpose while debugging
       },
     });
   }
@@ -669,84 +647,180 @@ const getAudioBookReviewByReviewId = async (req, res) => {
 };
 
 const searchAudioBooks = async (req, res) => {
-  try {
-    /* For the time being if title is provided (with or without other fields) then only results match to the title will be returned other fields will be ignored because lack of time we forgot to add the remaining fields search support in our AI model */
+  const {
+    include,
+    exclude,
+    limit = 10,
+    page = 1,
+    title,
+    language,
+    authors,
+    genres,
+    translators,
+  } = req.query;
 
-    const {
+  try {
+    const offset = (parseInt(page) - 1) * limit;
+
+    const queryForRequestData = {
+      limit,
       title,
-      language,
       authors,
       genres,
+      language,
       translators,
-      limit = 10,
-      page = 1,
-    } = req.query;
+    };
 
-    // const query = {};
-    // let titleMatchedBooks;
-    if (title) {
-      const offset = (parseInt(page) - 1) * limit;
-      const URI = `${process.env.AI_MODEL_BASE_URL}/books?name=${title}&n_books=${limit}&offset=${offset}`;
-      const response = await axios.get(URI);
+    const queryStringified = qs.stringify(queryForRequestData, {
+      encode: false,
+      arrayFormat: "brackets",
+    });
 
-      // console.log(response.status);
+    const URI = `${process.env.AI_MODEL_BASE_URL}/books?${queryStringified}&offset=${offset}`;
+    console.log(URI);
+    let response;
+    try {
+      response = await axios.get(URI);
+    } catch (error) {
+      console.log(error.response.data);
+      return res
+        .status(422)
+        .send({ message: "FAILED", description: "No search results found." });
+    }
 
-      return res.status(200).send({ data: response.data });
-      if (response.status !== 200) {
-        return res.status(422).send({ message: "FAILED" });
-      }
-
-      // const totalDocuments = await Book.countDocuments().exec();
-      const documents = await AudioBook.aggregate([
-        {
-          $facet: {
-            moreSimilar: [
-              {
-                $match: {
-                  _id: {
-                    $in: [...response.data.moreSimilar.map((id) => String(id))],
-                  },
+    const pipeline = [
+      {
+        $facet: {
+          moreSimilar: [
+            {
+              $match: {
+                _id: {
+                  $in: [...response.data.moreSimilar],
                 },
               },
-            ],
-            lessSimilar: [
-              {
-                $match: {
-                  _id: {
-                    $in: [...response.data.lessSimilar.map((id) => String(id))],
-                  },
+            },
+          ],
+          lessSimilar: [
+            {
+              $match: {
+                _id: {
+                  $in: [...response.data.lessSimilar],
                 },
               },
-            ],
-          },
+            },
+          ],
         },
-        {
-          $project: {
-            "moreSimilar.sections.listen_url": 0,
-            "lessSimilar.sections.listen_url": 0,
-          },
+      },
+      {
+        $project: {
+          "moreSimilar.sections.listen_url": 0,
+          "lessSimilar.sections.listen_url": 0,
         },
-      ]);
+      },
+    ];
 
+    const audioBooks = await AudioBookModel.populateDataForSearchedIds(
+      pipeline
+    );
+
+    if (audioBooks.status === "SUCCESS") {
       return res.json({
         data: {
           limit,
           page,
-          currentResults: Object.values(documents[0]).reduce(
+          totalResults: response.data.totalResults,
+          currentResults: Object.values(audioBooks.data).reduce(
             (length, array) => length + array.length,
             0
           ),
-          data: documents,
+          data: audioBooks.data,
         },
       });
+    } else if (audioBooks.status === "FAILED") {
+      return res
+        .status(404)
+        .send({ message: "FAILED", description: "No search results found." });
+    } else {
+      return res
+        .status(422)
+        .send({ message: "FAILED", error: audioBooks.error });
     }
-
-    // if (authors?.length) {
-    //   // const terms = authors.map((term) => new RegExp(`(?=.*${term})`, "i"));
-    //   filters.$or = authors.map((id) => ({ authors: id }));
-    // }
   } catch (error) {
-    return res.status(500).send({ error: error.message, stack: error.stack });
+    return res.status(500).send({
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
+};
+
+const getRecommendations = async (req, res, next) => {
+  const { limit, page } = req.query;
+  const { _id: userId } = req.decodedToken;
+
+  const topGenres = await UserModel.getTopListenedGenres(userId);
+
+  if (topGenres.status !== "SUCCESS") {
+    return res.status(404).send({
+      message: "FAILED",
+      description: "No listened data for the user yet.",
+    });
+  }
+
+  const offset = (parseInt(page) - 1) * limit;
+
+  const queryForRequest = { genres: topGenres.data?.genres };
+  const queryStringified = qs.stringify(queryForRequest, {
+    encode: false,
+    arrayFormat: "brackets",
+  });
+
+  const URI = `${process.env.AI_MODEL_BASE_URL}/recommendations?${queryStringified}&limit=${limit}&offset=${offset}`;
+  // console.log(URI);
+  let response;
+  try {
+    response = await axios.get(URI);
+  } catch (error) {
+    console.log(error.response.data);
+    return res
+      .status(422)
+      .send({ message: "FAILED", description: "No search results found." });
+  }
+
+  const pipeline = [
+    {
+      $match: {
+        _id: {
+          $in: response.data.recommendations,
+        },
+      },
+    },
+    {
+      $project: {
+        "sections.listen_url": 0,
+      },
+    },
+  ];
+
+  const audioBooks = await AudioBookModel.getBooksByIds(pipeline);
+
+  if (audioBooks.status === "SUCCESS") {
+    return res.json({
+      data: {
+        limit,
+        page,
+        totalResults: response.data.totalResults,
+        currentResults: audioBooks.data.length,
+        data: audioBooks.data,
+      },
+    });
+  } else if (audioBooks.status === "FAILED") {
+    return res
+      .status(404)
+      .send({ message: "FAILED", description: "No search results found." });
+  } else {
+    return res
+      .status(500)
+      .send({ message: "INTERNAL SERVER ERROR", error: audioBooks.error });
   }
 };
 
@@ -832,7 +906,7 @@ module.exports = {
   updateAudioBookScore,
   addMultipleAudioBooks,
   addAudioBookReview,
-  getAudioBookReviews,
   getAudioBookReviewByUserId,
   getAudioBookReviewByReviewId,
+  getRecommendations,
 };
